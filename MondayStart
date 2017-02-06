@@ -1,0 +1,238 @@
+# -*- coding: utf-8 -*-
+"""
+This code compares two layers of atoms that are slightly different and
+shows how the shear and strain changes as the top lattice is rotated an
+angle theta, this can then be used to find an efficient angle to rotate
+by to get minimal shear and strain
+
+@author: T. Jackson and D. Harrison
+"""
+import numpy as np
+import numpy.linalg as li
+import matplotlib.pyplot as plt
+from ase.io import read
+from ase.build import make_supercell
+from ase.visualize import view
+
+"number of atoms in super cell structure"
+N = 2000
+asprat = 1
+"stating layers to be used"
+layer1 ='MoS2_mono.cif'
+layer2 ='MoSe2_mono.cif'
+layer3 ='HBN_mono.cif'
+
+
+
+def inverM(p,q,r,s,a1,a2):
+    """This function will return the inverse matrix from the arrays for the 
+    different lattices that can be used to find the shear and strain"""
+    a = [p*a1[0,0],q*a2[0,0],p*a2[0,0],q*a1[0,0]]
+    b = [p*a1[1,0],q*a2[1,0],p*a2[1,0],q*a1[1,0]]
+    c = [r*a1[0,0],s*a2[0,0],r*a2[0,0],s*a1[0,0]]
+    d = [r*a1[1,0],s*a2[1,0],r*a2[1,0],s*a1[1,0]]
+
+    M = np.array((a,b,c,d))
+    Mi= li.inv(M)
+    return (Mi)
+def RotationMat(theta):
+    """ This function returns the rotational matrix to find the arrays 
+    for the rotated layer"""
+    theta = np.radians(theta)
+    c, s = np.cos(theta), np.sin(theta)
+    R = np.matrix([[c, -s], [s, c]])
+    return(R)
+def shearstrain(p,q,r,s,L1A,L2A,a1b,a2b):
+    """This function takes the inputs for the different layers and
+    returns the strain and shear in the x and y directions """
+    Mi = inverM(p,q,r,s,a1b,a2b)
+    
+    L = L1A + L2A
+    values = np.dot(Mi, L)
+    return (values)
+def BLattice(n,m,k,l,a1a,a2a,a1b,a2b,theta,L1A,L2A,thetaerr):
+    """Function that will simulate the second lattice and rotate it 
+    to optimise the values for p,q,r, and s as well as theta to reduce 
+    stess and shear"""
+    thetanew = theta-thetaerr
+    f = open('workfile.txt', 'w')
+    while thetanew <= 180:
+        
+        "B lattice rotated by angle theta"
+        a1bpr= RotationMat(thetanew) * a1b
+        a2bpr = RotationMat(thetanew) * a2b
+
+        "Creating Matricies neccessary to calculate p,q,r,s"
+        M1 = np.matrix([[n*a1a[0,0] + m*a2a[0,0]],[m*a2a[1,0]+ n*a1a[1,0]]])
+        M2 = np.matrix([[a1bpr[0,0], a2bpr[0,0]], [a1bpr[1,0], a2bpr[1,0]]])
+        M3 = np.matrix([[k*a1a[0,0] + l*a2a[0,0]], [l*a2a[1,0]+ k*a1a[1,0]]])
+        M2pr = li.inv(M2)
+        
+        "Separating Variables contained in vector"
+        pq = (M2pr*M1)
+        rs = (M2pr*M3)
+        p = int(round((pq[0,0])))
+        q = int(round((pq[1,0])))
+        r = int(round((rs[0,0])))
+        s = int(round((rs[1,0])))
+        "Run shear and strain calculation script"
+        
+        ss = shearstrain(p,q,r,s,L1A,L2A,a1bpr,a2bpr)
+        
+        "Separate sigmas and lambdas from vector"
+        v = ss[0]
+        x = ss[1]
+        y = ss[2]
+        z = ss[3]
+        "Plotting Sigma and lambda"
+        plt.rc('xtick', labelsize=12)  # fontsize of the tick labels
+        plt.rc('ytick', labelsize=12)
+        plt.rc('axes', labelsize=15)
+        
+        "Plot for sigma 1"
+        plt.figure(1)
+        plt.scatter(thetanew, v)
+        plt.xlabel(r'$\theta$')
+        plt.ylabel(r'$\sigma_1$')
+        "Plot for sigma 2"
+        plt.figure(2)
+        plt.scatter(thetanew, x)
+        plt.xlabel(r'$\theta$')
+        plt.ylabel(r'$\sigma_2$')
+        "Plot for lambda 1"
+        plt.figure(3)
+        plt.scatter(thetanew, y)
+        plt.xlabel(r'$\theta$')
+        plt.ylabel(r'$\lambda_1$')
+        "Plot for lambda 2"
+        plt.figure(4)
+        plt.scatter(thetanew, z)
+        plt.xlabel(r'$\theta$')
+        plt.ylabel(r'$\lambda_2$')
+        plt.pause(0.05)
+        
+        "writing all values to a file"
+        f.write('%f %f %f %f %f %f %f %f %f\n' %(p, q, r, s, v, x, y, z, thetanew))
+        print(p,q,r,s,v,x,y,z,thetanew)
+            
+        thetanew += 1
+    
+    plt.draw()
+    f.close
+    return(p,q,r,s,thetanew)
+def InputLattice(n,m,k,l,theta,errorst,errorsh,d,thetaerr,layera,layerb):
+    "This function loads in the two lattices"
+    
+    
+    layer1 = read(layera)
+    layer2 = read(layerb)
+    
+    a = layer1.get_cell()
+    
+    
+    
+    "The vectors that make up the first lattice, shown as a matrix"
+    a1a = np.matrix('{0};{1}'.format(a[0,0],a[0,1]))
+    a2a = np.matrix('{0};{1}'.format(a[1,0],a[1,1]))
+    print(a1a,a2a)
+    b = layer2.get_cell()
+  
+    "The vectors that make up the second lattice, shown as a matrix"
+    a1b = np.matrix('{0};{1}'.format(b[0,0],b[0,1]))
+    a2b = np.matrix('{0};{1}'.format(b[1,0],b[1,1]))
+    
+    
+    
+    "The vector of the first layer, since we want L1B and L2B for the second"
+    "lattice to be around equal to L1A and L2A they can be considered the same"
+    print(a1a,a2a,n,m,k,l)
+    L1A = [a1a[0,0] * n + m * a2a[0,0] , a1a[1,0] * n + m * a2a[1,0]]
+    L2A = [a1a[0,0] * k + l * a2a[0,0] , a1a[1,0] * k + l * a2a[1,0]]
+
+
+    p,q,r,s,thetanew = BLattice(n,m,k,l,a1a,a2a,a1b,a2b,theta,L1A,L2A,thetaerr)
+    
+    "reading in the file containing p,q,r,s the shear and strain as well as theta"
+    f = open('workfile.txt', 'r')
+    for line in f:
+        numbers_float = map(float, line.split())
+        "finding optimal values for p,q,r and s"
+        if  1-errorst<numbers_float[4]<1+errorst and 1-errorst<numbers_float[5]<1+errorst and 0-errorsh<numbers_float[6]<0+errorsh and 0-errorsh<numbers_float[7]<0+errorsh:
+            p = numbers_float[0]
+            q = numbers_float[1]
+            r = numbers_float[2]
+            s = numbers_float[3]
+            theta = numbers_float[8]
+            angle = (3.14159265358979 * theta)/180
+            print numbers_float
+            matrix = [[n, m, 0],[k, l, 0], [0,0,1]]
+            matrix2 = [[p, q, 0],[r, s, 0], [0,0,1]]
+            super1 = make_supercell(layer1,matrix)
+            super2 = make_supercell(layer2,matrix2)
+            super2.translate([0,0,d])#raise second supercell lattice by d 
+            super2.rotate('z', angle)
+            cell = super1 + super2
+            view(cell)
+        
+    f.close
+    
+
+def VDWLayer(N,asprat,*args):
+    
+    
+    layer = []
+    
+    i = 1
+    
+    
+    layer0 = read(args[0])
+    atom = layer0.get_atomic_numbers()
+    natoms = len(atom)
+    
+    "second layer angle and amount that it can be moved"
+    theta = 0
+    thetaerr = 0
+
+    "These are the values that define how many vectors make up the lattice"
+    n = int(np.sqrt((N*asprat)/natoms))
+    m = 0
+         
+    
+    a = layer0.get_cell()
+    a1a = np.matrix('{0};{1}'.format(a[0,0],a[0,1]))
+    a2a = np.matrix('{0};{1}'.format(a[1,0],a[1,1]))
+        
+    "Creating Matricies neccessary to calculate n,m,k,l"
+        
+    M2 = np.matrix([[a1a[0,0], a2a[0,0]], [a1a[1,0], a2a[1,0]]])
+    M3 = np.matrix([[n*a1a[0,0] + m*a2a[0,0]], [n*a2a[1,0]+ m*a1a[1,0]]])
+    M2pr = li.inv(M2)
+        
+    "Separating Variables contained in vector"
+        
+    rs = (M2pr*M3)
+        
+    k = int(round((rs[0,0])))
+    l = int(round((rs[1,0])))
+    print(n,m,k,l)
+
+    "these are the errors on the shear and strain"
+    errorst = 0.01
+    errorsh = 0.01
+        
+    d = 8. # Distance between layers
+    
+    while i < len(args):
+        layer.append(args[i-1])
+        e = args[i]
+        print i,len(args),e
+        layer.append(args[i])
+        
+        InputLattice(n,m,k,l,theta,errorst,errorsh,d,thetaerr,layer[0],layer[1])
+        
+        i = i + 1
+        
+   
+    
+    
+VDWLayer(N,asprat,layer1,layer2,layer1)
